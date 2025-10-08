@@ -1,0 +1,48 @@
+<program> ::= (<toplevel-definition> newline)+
+
+<toplevel-definition> ::= <definition> | <expression> 
+
+definition ::= identifier type_annotation? "=" expression
+
+type_annotation ::= ":" type
+
+type ::= basic_type | function_type
+
+basic_type ::= "int" | "float" | "string" | "bool"
+
+function_type ::= "(" type_list? ")" "->" type
+
+type_list ::= type ("," type)*
+
+expression ::= term (binary_operator term)*
+
+term ::= literal | identifier | lambda_expression | "(" expression ")"
+
+literal ::= integer
+          | float
+          | string
+          | boolean
+
+binary_operator ::= "+"
+                  | "-"
+                  | "*"
+                  | "/"
+                  | "=="
+                  | "!="
+                  | "<"
+                  | ">"
+                  | "<="
+                  | ">="
+
+lambda_expression ::= "(" parameter_list? ")" type_annotation? "->" expression
+
+parameter_list ::= parameter ("," parameter)*
+
+parameter ::= identifier type_annotation?
+
+identifier ::= [a-zA-Z_][a-zA-Z0-9_]*
+integer ::= [0-9]+
+float ::= [0-9]+ "." [0-9]+
+string ::= '"' [^"]* '"'
+boolean ::= "true" | "false"
+newline ::= "\n"

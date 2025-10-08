@@ -1,0 +1,61 @@
+# declaration of identifiers
+five = 5
+five: int = 5
+six = five + 1
+four: int = five - 1
+
+# first class functions
+
+add: (int, int) -> int = (num1: int, num2: int): int -> num1 + num2
+
+add: (int, int) -> int = (num1, num2) -> num1 + num2 
+
+add = (num1, num2) -> num1 + num2
+(+) = (num1, num2) -> num1 + num2
+
+add(a, b) = a + b
+
+# lists (functions with 1 arity, or being single chaining can be written as whitespace instead)
+list = [1, 2, 3, 4, 5]
+
+list(0) # 1
+list 1 # 2
+
+tuple: (string, int) = ("hello", 10)
+
+
+list: list[int] = [1, 2, 3, 4, 5]
+list: [int] = [1, 2, 3, 4, 5]
+list = [1, 2, 3, 4, 5]
+list.map(_ + 1)
+list.map _ + 1
+
+# using functions
+println "Hello World"
+println("Hello World")
+
+# Maps
+
+map: [int -> string] = [3 : "hi", 4 : "Bye"]
+map: [int -> [string]] = [3 : ["hi", "YOYOY"], 4 : ["Bye", "YOYO"]]
+
+optional: int? = some(53)
+
+is53 = optional match
+          some 53 -> true
+          _       -> false
+
+
+type Vector = (x: int, y: int)
+
+trait PhoneBook
+    get_name: string
+
+type Person <: PhoneBook = (name: string, age: Int)
+    get_name: string = s"Hello ${name}!"
+
+trait Show[a] 
+    show: a -> string
+
+impl Show[int]
+    show = value -> value.to_string
