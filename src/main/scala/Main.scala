@@ -99,21 +99,43 @@ import java.lang.reflect.AccessFlag
       List(
         Defn(
           name = "banana",
-          decltpe = Some(Type.TypeInt),
+          decltpe = Some(Type.TypeLong),
           mods = List(AccessFlag.PUBLIC, AccessFlag.STATIC),
-          rhs = Term.Literal(Lit.IntLit(999))
+          rhs = Term.Block(List(Term.Literal(Lit.LongLit(999L))))
         ),
         Defn(
           name = "identity",
-          params = List(Param("a", Some(Type.TypeInt))),
+          params = List(Param("a", Some(Type.TypeLong))),
           mods = List(AccessFlag.PUBLIC, AccessFlag.STATIC),
           decltpe = Some(Type.TypeUnit),
-          rhs = Term.Block(List(Defn("temporary", Some(Type.TypeInt), rhs = Term.Name("banana"))))
+          rhs = Term.Block(List(Defn("temporary", Some(Type.TypeLong), rhs = Term.Name("banana"))))
         )
       ),
       "Main"
     )
 
-    val bytes = emitCode(functionCall)
+    // banana = (handler) => 74
+    val lambda = Source(
+      List(
+        Defn(
+          name = "banana",
+          // decltpe = Some(Type.TypeName("java/util/function/IntUnaryOperator")),
+          decltpe = Some(Type.TypeInt),
+          mods = List(AccessFlag.PUBLIC, AccessFlag.STATIC),
+          rhs = Term.Block(
+            List(
+              Defn(
+                decltpe = Some(Type.TypeInt),
+                params = List(Param("handler", Some(Type.TypeInt))),
+                rhs = Term.Literal(Lit.IntLit(74))
+              ),
+              Term.Literal(Lit.IntLit(42))
+            )
+          )
+        )
+      )
+    )
+
+    val bytes = emitCode(lambda)
 
     Files.write(Paths.get("Main.class"), bytes)

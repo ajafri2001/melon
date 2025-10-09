@@ -16,47 +16,18 @@ import ast.Term.Literal
 import ast.SymbolInfo.*
 import java.lang.classfile.attribute.ConstantValueAttribute
 import ast.Term.Name
+import Conversions.given
+
+import scala.collection.mutable.ArrayBuffer
 
 var scope = Scope()
 
-case class ClinitFields()
-
-val staticInitializer = new scala.collection.mutable.ArrayBuffer[StaticFieldInitializer].empty
-
-given Conversion[List[Mod], Int] = (mods: List[Mod]) =>
-    if mods.isEmpty then AccessFlag.PUBLIC.mask | AccessFlag.STATIC.mask
-    else mods.map(_.mask).reduce(_ | _)
-
-given Conversion[Type, TypeKind] = (value: Type) =>
-    value match
-        case Type.TypeInt    => TypeKind.INT
-        case Type.TypeDouble => TypeKind.DOUBLE
-        case Type.TypeFloat  => TypeKind.FLOAT
-        case Type.TypeBool   => TypeKind.BOOLEAN
-        case Type.TypeByte   => TypeKind.BYTE
-        case Type.TypeShort  => TypeKind.SHORT
-        case Type.TypeChar   => TypeKind.CHAR
-        case Type.TypeLong   => TypeKind.LONG
-        case Type.TypeString => TypeKind.REFERENCE
-        case _               => TypeKind.REFERENCE
-
-given Conversion[Type, ClassDesc] = (kind) =>
-    kind match
-        case Type.TypeInt    => CD_int
-        case Type.TypeDouble => CD_double
-        case Type.TypeFloat  => CD_float
-        case Type.TypeLong   => CD_long
-        case Type.TypeShort  => CD_short
-        case Type.TypeBool   => CD_boolean
-        case Type.TypeByte   => CD_byte
-        case Type.TypeString => CD_String
-        case Type.TypeUnit   => CD_void
-        case Type.TypeChar   => CD_char
-        case _               => ???
+val staticInitializer = ArrayBuffer[StaticFieldInitializer]().empty
 
 def emitStatement(cf: ClassBuilder, stat: Stat) =
     stat match
         case Defn(name, decltpe, rhs, mods, params) =>
+            assert(!name.isEmpty, println("TOP LEVEL DEFINITIONS SHOULDN't HAVE EMPTY NAMES"))
             if params.isEmpty then
                 rhs match
                     case Literal(literal) =>
@@ -78,15 +49,14 @@ def emitStatement(cf: ClassBuilder, stat: Stat) =
                       scope = scope.push
                       params.foreach: p =>
                           scope.addLocal(p.name, p.decltpe.get)
-                      emitMethod(handler, decltpe.get, rhs)
+                      codeBuilder(handler, rhs)(using cf)
+                      emitReturn(handler, decltpe.get)
                       scope = scope.pop
                 )
-
             cf
 
-def populateClinitFields(cb: CodeBuilder, fieldType: ClassDesc, rhs: Term): Unit =
+def populateClinitFields(cb: CodeBuilder, fieldType: ClassDesc, rhs: Term)(using cf: ClassBuilder): Unit =
     rhs match
-
         case Name(value) =>
             scope.lookup(value).get match
                 case LocalSymbol(tpe, slot) => emitLoad(cb, tpe, slot)
@@ -108,23 +78,44 @@ def populateClinitFields(cb: CodeBuilder, fieldType: ClassDesc, rhs: Term): Unit
             value match
                 case Lit.IntLit(value)    => cb.ldc(value)
                 case Lit.StringLit(value) => cb.ldc(value)
+                case Lit.LongLit(value)   => cb.ldc(value)
 
         case Term.Apply(qualifiedName, args) =>
             ???
 
         case Term.Block(stats) =>
             stats.foreach:
-                case Defn(name, decltpe, rhs, mods, params) =>
+                case definition @ Defn(name, decltpe, rhs, mods, params) =>
                     val localType = decltpe.get
 
-                    scope.addLocal(name, localType)
+                    if name.isEmpty then
+                        var count = 1
+                        val syntheticName = s"lambdaSynthetic@$count"
+                        scope.addLocal(syntheticName, localType)
+                        count += 1
+                        emitLambda(cf, definition.copy(name = syntheticName))
+                    else
+                        scope.addLocal(name, localType)
 
-                    val slot = cb.allocateLocal(localType)
+                        val slot = cb.allocateLocal(localType)
 
-                    populateClinitFields(cb, localType, rhs)
+                        populateClinitFields(cb, localType, rhs)
 
-                    emitStore(cb, decltpe.get, slot)
+                        emitStore(cb, decltpe.get, slot)
+
                 case t: Term => populateClinitFields(cb, fieldType, t)
+
+def emitLambda(cf: ClassBuilder, defn: Defn) =
+    val Defn(name, decltpe, rhs, _, params) = defn
+
+    println(name)
+
+    cf.withMethodBody(
+      name,
+      resolveMethodDescriptors(decltpe.get, params),
+      AccessFlag.PRIVATE.mask | AccessFlag.SYNTHETIC.mask | AccessFlag.STATIC.mask,
+      h => codeBuilder(h, rhs)(using cf)
+    )
 
 def emitClinit(cf: ClassBuilder) =
     if staticInitializer.nonEmpty then
@@ -136,14 +127,13 @@ def emitClinit(cf: ClassBuilder) =
               staticInitializer.foreach: n =>
                   n match
                       case StaticFieldInitializer(fieldName, fieldType, rhs) =>
-                          populateClinitFields(handler, fieldType, rhs)
+                          populateClinitFields(handler, fieldType, rhs)(using cf)
                           handler.putstatic(ClassDesc.of("Main"), fieldName, fieldType)
               handler.return_
         )
 
 def emitConstantField(fieldBuilder: FieldBuilder, literal: Lit) =
     literal match
-
         case Lit.IntLit(value) =>
             fieldBuilder.`with`(ConstantValueAttribute.of(fieldBuilder.constantPool.intEntry(value)))
 
@@ -151,6 +141,9 @@ def emitConstantField(fieldBuilder: FieldBuilder, literal: Lit) =
             fieldBuilder.`with`(
               ConstantValueAttribute.of(fieldBuilder.constantPool.stringEntry(value))
             )
+
+        case Lit.LongLit(value) =>
+            fieldBuilder.`with`(ConstantValueAttribute.of(fieldBuilder.constantPool.longEntry(value)))
 
 def emitCode(source: Source) =
     source.statements.foreach(n =>
@@ -178,56 +171,54 @@ def resolveMethodDescriptors(tpe: Type, params: List[Param] = Nil): MethodTypeDe
 
 def emitLoad(cb: CodeBuilder, tpe: Type, slot: Int): Unit =
     tpe match
-        case Type.TypeInt                  => cb.iload(slot)
-        case Type.TypeDouble               => cb.dload(slot)
-        case Type.TypeFloat                => cb.fload(slot)
-        case Type.TypeLong                 => cb.lload(slot)
-        case Type.TypeShort                => cb.iload(slot)
-        case Type.TypeBool                 => cb.iload(slot)
-        case Type.TypeByte                 => cb.iload(slot)
-        case Type.TypeString               => cb.aload(slot)
-        case Type.TypeUnit                 => cb.aload(slot)
-        case Type.TypeChar                 => cb.iload(slot)
-        case Type.TypeName(value)          => ???
-        case Type.TypeFunc(result, params) => ???
+        case Type.TypeInt         => cb.iload(slot)
+        case Type.TypeDouble      => cb.dload(slot)
+        case Type.TypeFloat       => cb.fload(slot)
+        case Type.TypeLong        => cb.lload(slot)
+        case Type.TypeShort       => cb.iload(slot)
+        case Type.TypeBool        => cb.iload(slot)
+        case Type.TypeByte        => cb.iload(slot)
+        case Type.TypeString      => cb.aload(slot)
+        case Type.TypeUnit        => cb.aload(slot)
+        case Type.TypeChar        => cb.iload(slot)
+        case Type.TypeName(value) => cb.aload(slot)
+        case Type.TypeFunc(_, _)  => cb.aload(slot)
 
 def emitStore(cb: CodeBuilder, tpe: Type, slot: Int): Unit =
     tpe match
-        case Type.TypeInt                  => cb.istore(slot)
-        case Type.TypeDouble               => cb.dstore(slot)
-        case Type.TypeFloat                =>
-        case Type.TypeLong                 =>
-        case Type.TypeShort                =>
-        case Type.TypeBool                 =>
-        case Type.TypeByte                 =>
-        case Type.TypeString               => cb.astore(slot)
-        case Type.TypeUnit                 =>
-        case Type.TypeChar                 =>
-        case Type.TypeName(value)          =>
-        case Type.TypeFunc(result, params) =>
+        case Type.TypeInt         => cb.istore(slot)
+        case Type.TypeDouble      => cb.dstore(slot)
+        case Type.TypeFloat       => cb.fstore(slot)
+        case Type.TypeLong        => cb.lstore(slot)
+        case Type.TypeShort       => cb.istore(slot)
+        case Type.TypeBool        => cb.istore(slot)
+        case Type.TypeByte        => cb.istore(slot)
+        case Type.TypeString      => cb.astore(slot)
+        case Type.TypeUnit        => ???
+        case Type.TypeChar        => cb.istore(slot)
+        case Type.TypeName(value) => cb.astore(slot)
+        case _: Type.TypeFunc     => cb.astore(slot)
 
-def emitMethod(cb: CodeBuilder, returnType: Type, rhs: Term) =
-    codeBuilder(cb, rhs)
+def emitReturn(cb: CodeBuilder, returnType: Type) =
     returnType match
-        case Type.TypeInt                  => cb.ireturn
-        case Type.TypeDouble               => cb.dreturn
-        case Type.TypeFloat                => cb.freturn
-        case Type.TypeLong                 => cb.lreturn
-        case Type.TypeShort                => cb.ireturn
-        case Type.TypeBool                 => cb.ireturn
-        case Type.TypeByte                 => cb.ireturn
-        case Type.TypeString               => cb.areturn
-        case Type.TypeUnit                 => cb.return_
-        case Type.TypeChar                 => cb.ireturn
-        case Type.TypeName(value)          => cb.areturn
-        case Type.TypeFunc(result, params) => cb.areturn
+        case Type.TypeInt             => cb.ireturn
+        case Type.TypeDouble          => cb.dreturn
+        case Type.TypeFloat           => cb.freturn
+        case Type.TypeLong            => cb.lreturn
+        case Type.TypeShort           => cb.ireturn
+        case Type.TypeBool            => cb.ireturn
+        case Type.TypeByte            => cb.ireturn
+        case Type.TypeString          => cb.areturn
+        case Type.TypeUnit            => cb.return_
+        case Type.TypeChar            => cb.ireturn
+        case Type.TypeName(value)     => cb.areturn
+        case Type.TypeFunc(_, result) => cb.areturn
 
-def codeBuilder(cb: CodeBuilder, rhs: Term): Unit =
+def codeBuilder(cb: CodeBuilder, rhs: Term)(using cf: ClassBuilder): Unit =
     rhs match
         case Term.Name(value) =>
             scope.lookup(value).get match
                 case FieldSymbol(qualifiedName, tpe, mods) =>
-                    println("HELLO")
                     val isStatic = mods.contains(AccessFlag.STATIC)
                     if isStatic then
                         cb.getstatic(
@@ -271,15 +262,15 @@ def codeBuilder(cb: CodeBuilder, rhs: Term): Unit =
                           resolveMethodDescriptors(tpe, params)
                         )
 
-                case _ =>
-                    ???
+                case _ => ???
 
         case Term.Select(qualifier, name) => ???
 
-        case Term.Literal(value) =>
+        case Term.Literal(value: Lit) =>
             value match
                 case Lit.IntLit(value)    => cb.ldc(value)
                 case Lit.StringLit(value) => cb.ldc(value)
+                case Lit.LongLit(value)   => cb.ldc(value)
 
         case Term.Block(stats) =>
             cb.block: bk =>
@@ -288,25 +279,28 @@ def codeBuilder(cb: CodeBuilder, rhs: Term): Unit =
                     n match
                         case Defn(name, decltpe, rhs, mods, params) =>
                             val localType = decltpe.get
+                            val localSlot = bk.allocateLocal(localType)
                             scope.addLocal(name, localType)
                             rhs match
                                 case Literal(value) =>
                                     value match
                                         case Lit.IntLit(value) =>
                                             bk.ldc(value)
-                                            val local = bk.allocateLocal(localType)
-                                            bk.istore(local)
+                                            bk.istore(localSlot)
+
+                                        case Lit.LongLit(value) =>
+                                            bk.ldc(value)
+                                            bk.lstore(localSlot)
+
                                         case Lit.StringLit(value) =>
                                             bk.ldc(value)
-                                            val local = bk.allocateLocal(localType)
-                                            bk.astore(local)
+                                            bk.astore(localSlot)
 
                                 case Name(value) =>
-                                    val local = bk.allocateLocal(localType)
                                     codeBuilder(bk, rhs)
-                                    emitStore(bk, localType, local)
+                                    emitStore(bk, localType, localSlot)
                                 case _ => throw NotImplementedError("LMFAO WFKSFKFJDSFDKJ")
 
                         case _: Term =>
                             codeBuilder(bk, n.asInstanceOf[Term]) // quality pattern matching lol
-                scope = scope.pop
+                scope = scope.po
