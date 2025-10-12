@@ -41,6 +41,7 @@ enum Term:
     case Literal(value: Lit)
     case Apply(qualifiedName: Name, args: List[Term])
     case Block(stats: List[Term | Stat])
+    case Lambda(params: List[Param], rhs: Term)
 
 enum Lit:
     case IntLit(value: Int)

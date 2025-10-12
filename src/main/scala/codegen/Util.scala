@@ -8,6 +8,9 @@ import java.lang.reflect.AccessFlag
 import java.lang.classfile.TypeKind
 import java.lang.constant.ClassDesc
 import java.lang.constant.ConstantDescs.*
+import java.lang.constant.MethodHandleDesc
+import java.lang.constant.DirectMethodHandleDesc
+import java.lang.constant.MethodTypeDesc
 
 case class StaticFieldInitializer(fieldName: String, fieldType: ClassDesc, rhs: Term)
 
@@ -42,3 +45,21 @@ object Conversions:
             case Type.TypeUnit   => CD_void
             case Type.TypeChar   => CD_char
             case _               => ClassDesc.of("java.util.function.IntUnaryOperator")
+
+object Constants:
+    val LambdaFlag: Int = AccessFlag.PRIVATE.mask | AccessFlag.SYNTHETIC.mask | AccessFlag.STATIC.mask
+
+    val LambdaBootstrapMethod: DirectMethodHandleDesc = MethodHandleDesc.ofMethod(
+      DirectMethodHandleDesc.Kind.STATIC,
+      ClassDesc.of("java.lang.invoke.LambdaMetafactory"),
+      "metafactory",
+      MethodTypeDesc.of(
+        ClassDesc.of("java.lang.invoke.CallSite"),
+        ClassDesc.of("java.lang.invoke.MethodHandles$Lookup"),
+        ClassDesc.of("java.lang.String"),
+        ClassDesc.of("java.lang.invoke.MethodType"),
+        ClassDesc.of("java.lang.invoke.MethodType"),
+        ClassDesc.of("java.lang.invoke.MethodHandle"),
+        ClassDesc.of("java.lang.invoke.MethodType")
+      )
+    )

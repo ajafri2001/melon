@@ -119,19 +119,9 @@ import java.lang.reflect.AccessFlag
       List(
         Defn(
           name = "banana",
-          // decltpe = Some(Type.TypeName("java/util/function/IntUnaryOperator")),
-          decltpe = Some(Type.TypeInt),
+          decltpe = Some(Type.TypeName("java/util/function/IntUnaryOperator")),
           mods = List(AccessFlag.PUBLIC, AccessFlag.STATIC),
-          rhs = Term.Block(
-            List(
-              Defn(
-                decltpe = Some(Type.TypeInt),
-                params = List(Param("handler", Some(Type.TypeInt))),
-                rhs = Term.Literal(Lit.IntLit(74))
-              ),
-              Term.Literal(Lit.IntLit(42))
-            )
-          )
+          rhs = Term.Lambda(params = List(Param("handler", Some(Type.TypeInt))), rhs = Term.Name("handler"))
         )
       )
     )

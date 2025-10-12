@@ -83,39 +83,33 @@ def populateClinitFields(cb: CodeBuilder, fieldType: ClassDesc, rhs: Term)(using
         case Term.Apply(qualifiedName, args) =>
             ???
 
+        case Term.Lambda(params, rhs) =>
+            params.foreach(param => scope.addLocal(param.name, param.decltpe.get))
+            cf.withMethodBody(
+              "lambda$0",
+              MethodTypeDesc.of(CD_int, CD_int),
+              Constants.LambdaFlag,
+              cb =>
+                  codeBuilder(cb, rhs)
+                  emitReturn(cb, Type.TypeInt)
+            )
+
         case Term.Block(stats) =>
             stats.foreach:
-                case definition @ Defn(name, decltpe, rhs, mods, params) =>
+                case Defn(name, decltpe, rhs, mods, params) =>
                     val localType = decltpe.get
 
-                    if name.isEmpty then
-                        var count = 1
-                        val syntheticName = s"lambdaSynthetic@$count"
-                        scope.addLocal(syntheticName, localType)
-                        count += 1
-                        emitLambda(cf, definition.copy(name = syntheticName))
-                    else
-                        scope.addLocal(name, localType)
+                    scope.addLocal(name, localType)
 
-                        val slot = cb.allocateLocal(localType)
+                    val slot = cb.allocateLocal(localType)
 
-                        populateClinitFields(cb, localType, rhs)
+                    populateClinitFields(cb, localType, rhs)
 
-                        emitStore(cb, decltpe.get, slot)
+                    emitStore(cb, decltpe.get, slot)
 
                 case t: Term => populateClinitFields(cb, fieldType, t)
 
-def emitLambda(cf: ClassBuilder, defn: Defn) =
-    val Defn(name, decltpe, rhs, _, params) = defn
-
-    println(name)
-
-    cf.withMethodBody(
-      name,
-      resolveMethodDescriptors(decltpe.get, params),
-      AccessFlag.PRIVATE.mask | AccessFlag.SYNTHETIC.mask | AccessFlag.STATIC.mask,
-      h => codeBuilder(h, rhs)(using cf)
-    )
+def emitLambda(params: List[Param], rhs: Term)(using cf: ClassBuilder) = ???
 
 def emitClinit(cf: ClassBuilder) =
     if staticInitializer.nonEmpty then
@@ -127,6 +121,29 @@ def emitClinit(cf: ClassBuilder) =
               staticInitializer.foreach: n =>
                   n match
                       case StaticFieldInitializer(fieldName, fieldType, rhs) =>
+                          rhs match
+                              case Term.Lambda(params, rhs) =>
+                                  val implMethod = MethodHandleDesc.ofMethod(
+                                    DirectMethodHandleDesc.Kind.STATIC,
+                                    ClassDesc.of("Main"),
+                                    "lambda$0",
+                                    MethodTypeDesc.of(CD_int, CD_int)
+                                  )
+
+                                  val callSiteDesc = DynamicCallSiteDesc.of(
+                                    Constants.LambdaBootstrapMethod,
+                                    "applyAsInt", // IntUnaryOperator's method
+                                    MethodTypeDesc.of(
+                                      ClassDesc.of(
+                                        "java.util.function.IntUnaryOperator"
+                                      )
+                                    ),
+                                    MethodTypeDesc.of(CD_int, CD_int),
+                                    implMethod,
+                                    MethodTypeDesc.of(CD_int, CD_int)
+                                  )
+                                  handler.invokedynamic(callSiteDesc)
+
                           populateClinitFields(handler, fieldType, rhs)(using cf)
                           handler.putstatic(ClassDesc.of("Main"), fieldName, fieldType)
               handler.return_
@@ -303,4 +320,4 @@ def codeBuilder(cb: CodeBuilder, rhs: Term)(using cf: ClassBuilder): Unit =
 
                         case _: Term =>
                             codeBuilder(bk, n.asInstanceOf[Term]) // quality pattern matching lol
-                scope = scope.po
+                scope = scope.pop
