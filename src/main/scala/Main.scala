@@ -105,10 +105,22 @@ import java.lang.reflect.AccessFlag
         ),
         Defn(
           name = "identity",
-          params = List(Param("a", Some(Type.TypeLong))),
+          params = List(Param("a", Some(Type.TypeInt))),
           mods = List(AccessFlag.PUBLIC, AccessFlag.STATIC),
           decltpe = Some(Type.TypeUnit),
-          rhs = Term.Block(List(Defn("temporary", Some(Type.TypeLong), rhs = Term.Name("banana"))))
+          rhs = Term.Block(
+            List(
+              Defn(
+                "temporary",
+                decltpe = Some(Type.TypeName("java/util/function/IntUnaryOperator")),
+                rhs = Term.Lambda(
+                  params = List(Param("handler", Some(Type.TypeInt))),
+                  rhs = Term.Name("a"),
+                  returnType = Some(Type.TypeInt)
+                )
+              )
+            )
+          )
         )
       ),
       "Main"
@@ -121,11 +133,20 @@ import java.lang.reflect.AccessFlag
           name = "banana",
           decltpe = Some(Type.TypeName("java/util/function/IntUnaryOperator")),
           mods = List(AccessFlag.PUBLIC, AccessFlag.STATIC),
-          rhs = Term.Lambda(params = List(Param("handler", Some(Type.TypeInt))), rhs = Term.Name("handler"))
+          rhs = Term.Block(
+            List(
+              Term.Lambda(
+                name = None,
+                params = List(Param("handler", Some(Type.TypeInt))),
+                rhs = Term.Name("handler"),
+                returnType = Some(Type.TypeInt)
+              )
+            )
+          )
         )
       )
     )
 
-    val bytes = emitCode(lambda)
+    val bytes = emitCode(functionCall)
 
     Files.write(Paths.get("Main.class"), bytes)

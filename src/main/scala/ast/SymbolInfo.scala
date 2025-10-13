@@ -7,7 +7,8 @@ enum SymbolInfo:
     case FieldSymbol(qualifiedName: String, tpe: Type, mods: List[Mod])
     case MethodSymbol(qualifiedName: String, tpe: Type, mods: List[Mod], params: List[Param])
 
-class Scope(val parent: Option[Scope] = None):
+// Ideally should refactor to a singleton via a companion object
+final class Scope(val parent: Option[Scope] = None):
 
     private val symbols: Map[String, SymbolInfo] = Map.empty
     private var nextSlot: Int = 0

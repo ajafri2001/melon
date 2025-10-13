@@ -5,6 +5,7 @@ import ast.*
 import scala.language.implicitConversions
 
 import java.lang.reflect.AccessFlag
+import java.lang.reflect.Modifier
 import java.lang.classfile.TypeKind
 import java.lang.constant.ClassDesc
 import java.lang.constant.ConstantDescs.*
@@ -46,6 +47,12 @@ object Conversions:
             case Type.TypeChar   => CD_char
             case _               => ClassDesc.of("java.util.function.IntUnaryOperator")
 
+object LambdaSyntheticMethodName:
+    private var count = 0
+    def getName =
+        count += 1
+        s"lambda@${count}"
+
 object Constants:
     val LambdaFlag: Int = AccessFlag.PRIVATE.mask | AccessFlag.SYNTHETIC.mask | AccessFlag.STATIC.mask
 
@@ -63,3 +70,16 @@ object Constants:
         ClassDesc.of("java.lang.invoke.MethodType")
       )
     )
+
+object Reflection:
+    def getSAMName(interfaceName: String) =
+        Class
+            .forName(interfaceName)
+            .getMethods
+            .find(m =>
+                Modifier.isAbstract(m.getModifiers) && !Modifier.isStatic(
+                  m.getModifiers
+                ) && !m.isDefault && m.getDeclaringClass != classOf[Object]
+            )
+            .map(_.getName)
+            .getOrElse(throw new IllegalArgumentException(s"$interfaceName has no SAM"))

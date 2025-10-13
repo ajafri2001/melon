@@ -19,6 +19,7 @@ import ast.Term.Name
 import Conversions.given
 
 import scala.collection.mutable.ArrayBuffer
+import ast.Term.Lambda
 
 var scope = Scope()
 
@@ -49,7 +50,7 @@ def emitStatement(cf: ClassBuilder, stat: Stat) =
                       scope = scope.push
                       params.foreach: p =>
                           scope.addLocal(p.name, p.decltpe.get)
-                      codeBuilder(handler, rhs)(using cf)
+                      codeBuilder(handler, rhs, decltpe)(using cf)
                       emitReturn(handler, decltpe.get)
                       scope = scope.pop
                 )
@@ -60,7 +61,6 @@ def populateClinitFields(cb: CodeBuilder, fieldType: ClassDesc, rhs: Term)(using
         case Name(value) =>
             scope.lookup(value).get match
                 case LocalSymbol(tpe, slot) => emitLoad(cb, tpe, slot)
-
                 case FieldSymbol(qualifiedName, tpe, mods) =>
                     if mods.contains(ClassFile.ACC_STATIC) then
                         cb.getstatic(
@@ -69,50 +69,73 @@ def populateClinitFields(cb: CodeBuilder, fieldType: ClassDesc, rhs: Term)(using
                           tpe
                         )
                     else throw new Exception("Cannot access instance field in static initializer")
-
                 case _ => ???
-
         case Term.Select(qualifier, name) => ???
-
         case Literal(value) =>
             value match
                 case Lit.IntLit(value)    => cb.ldc(value)
                 case Lit.StringLit(value) => cb.ldc(value)
                 case Lit.LongLit(value)   => cb.ldc(value)
-
         case Term.Apply(qualifiedName, args) =>
             ???
-
-        case Term.Lambda(params, rhs) =>
-            params.foreach(param => scope.addLocal(param.name, param.decltpe.get))
-            cf.withMethodBody(
-              "lambda$0",
-              MethodTypeDesc.of(CD_int, CD_int),
-              Constants.LambdaFlag,
-              cb =>
-                  codeBuilder(cb, rhs)
-                  emitReturn(cb, Type.TypeInt)
+        case Term.Lambda(name, params, rhs, returnType) =>
+            val implMethod = MethodHandleDesc.ofMethod(
+              DirectMethodHandleDesc.Kind.STATIC,
+              ClassDesc.of("Main"),
+              name.get,
+              resolveMethodDescriptors(returnType.get, params)
             )
-
+            val callSiteDesc = DynamicCallSiteDesc.of(
+              Constants.LambdaBootstrapMethod,
+              Reflection.getSAMName(
+                fieldType.packageName + "." + fieldType.displayName
+              ),
+              resolveMethodDescriptors(returnType.get),
+              MethodTypeDesc.of(returnType.get),
+              implMethod,
+              resolveMethodDescriptors(returnType.get, params)
+            )
+            cb.invokedynamic(callSiteDesc)
         case Term.Block(stats) =>
             stats.foreach:
                 case Defn(name, decltpe, rhs, mods, params) =>
                     val localType = decltpe.get
-
                     scope.addLocal(name, localType)
-
                     val slot = cb.allocateLocal(localType)
-
                     populateClinitFields(cb, localType, rhs)
-
                     emitStore(cb, decltpe.get, slot)
-
                 case t: Term => populateClinitFields(cb, fieldType, t)
 
-def emitLambda(params: List[Param], rhs: Term)(using cf: ClassBuilder) = ???
+def collectLambdas(term: Term): List[Term.Lambda] =
+    term match
+        case lambda @ Term.Lambda(name, params, rhs, returnType) =>
+            lambda :: collectLambdas(rhs)
+        case Term.Block(stats) =>
+            stats.flatMap {
+                case Defn(_, _, rhs, _, _) => collectLambdas(rhs)
+                case t: Term               => collectLambdas(t)
+            }
+        case Term.Apply(_, args) =>
+            args.flatMap(collectLambdas)
+        case _ => Nil
 
-def emitClinit(cf: ClassBuilder) =
+def emitClinit(using cf: ClassBuilder) =
     if staticInitializer.nonEmpty then
+        staticInitializer.foreach: n =>
+            n match
+                case StaticFieldInitializer(fieldName, fieldType, rhs) =>
+                    val lambdas = collectLambdas(rhs)
+                    lambdas.foreach: lambda =>
+                        lambda.params.foreach(param => scope.addLocal(param.name, param.decltpe.get))
+                        cf.withMethodBody(
+                          lambda.name.get,
+                          resolveMethodDescriptors(lambda.returnType.get, lambda.params),
+                          Constants.LambdaFlag,
+                          cb =>
+                              codeBuilder(cb, lambda.rhs)
+                              emitReturn(cb, lambda.returnType.get)
+                        )
+
         cf.withMethodBody(
           "<clinit>",
           MTD_void,
@@ -121,29 +144,6 @@ def emitClinit(cf: ClassBuilder) =
               staticInitializer.foreach: n =>
                   n match
                       case StaticFieldInitializer(fieldName, fieldType, rhs) =>
-                          rhs match
-                              case Term.Lambda(params, rhs) =>
-                                  val implMethod = MethodHandleDesc.ofMethod(
-                                    DirectMethodHandleDesc.Kind.STATIC,
-                                    ClassDesc.of("Main"),
-                                    "lambda$0",
-                                    MethodTypeDesc.of(CD_int, CD_int)
-                                  )
-
-                                  val callSiteDesc = DynamicCallSiteDesc.of(
-                                    Constants.LambdaBootstrapMethod,
-                                    "applyAsInt", // IntUnaryOperator's method
-                                    MethodTypeDesc.of(
-                                      ClassDesc.of(
-                                        "java.util.function.IntUnaryOperator"
-                                      )
-                                    ),
-                                    MethodTypeDesc.of(CD_int, CD_int),
-                                    implMethod,
-                                    MethodTypeDesc.of(CD_int, CD_int)
-                                  )
-                                  handler.invokedynamic(callSiteDesc)
-
                           populateClinitFields(handler, fieldType, rhs)(using cf)
                           handler.putstatic(ClassDesc.of("Main"), fieldName, fieldType)
               handler.return_
@@ -176,8 +176,8 @@ def emitCode(source: Source) =
     ClassFile.of.build(
       ClassDesc.of(source.name),
       cf =>
-          source.statements.foreach(stat => emitStatement(cf, stat))
-          emitClinit(cf)
+          source.statements.map(nameLambdas).foreach(stat => emitStatement(cf, stat))
+          emitClinit(using cf)
     )
 
 def resolveMethodDescriptors(tpe: Type, params: List[Param] = Nil): MethodTypeDesc =
@@ -231,7 +231,9 @@ def emitReturn(cb: CodeBuilder, returnType: Type) =
         case Type.TypeName(value)     => cb.areturn
         case Type.TypeFunc(_, result) => cb.areturn
 
-def codeBuilder(cb: CodeBuilder, rhs: Term)(using cf: ClassBuilder): Unit =
+def codeBuilder(cb: CodeBuilder, rhs: Term, lambdaRecurseType: Option[Type] = None)(using
+    cf: ClassBuilder
+): Unit =
     rhs match
         case Term.Name(value) =>
             scope.lookup(value).get match
@@ -289,6 +291,47 @@ def codeBuilder(cb: CodeBuilder, rhs: Term)(using cf: ClassBuilder): Unit =
                 case Lit.StringLit(value) => cb.ldc(value)
                 case Lit.LongLit(value)   => cb.ldc(value)
 
+        case Term.Lambda(name, params, rhs, tpe) =>
+            params.foreach(param => scope.addLocal(param.name, param.decltpe.get))
+
+            cf.withMethodBody(
+              name.get,
+              resolveMethodDescriptors(tpe.get, params),
+              Constants.LambdaFlag,
+              handler =>
+                  scope = scope.push
+                  params.foreach: p =>
+                      scope.addLocal(p.name, p.decltpe.get)
+                      codeBuilder(handler, rhs, tpe)(using cf)
+                      emitReturn(handler, tpe.get)
+                  scope = scope.pop
+            )
+
+            val fieldType = lambdaRecurseType.get
+
+            println(fieldType)
+
+            val implMethod = MethodHandleDesc.ofMethod(
+              DirectMethodHandleDesc.Kind.STATIC,
+              ClassDesc.of("Main"),
+              name.get,
+              resolveMethodDescriptors(tpe.get, params)
+            )
+
+            val callSiteDesc = DynamicCallSiteDesc.of(
+              Constants.LambdaBootstrapMethod,
+              Reflection.getSAMName(
+                fieldType.packageName + "." + fieldType.displayName
+              ),
+              resolveMethodDescriptors(fieldType),
+              MethodTypeDesc.of(tpe.get),
+              implMethod,
+              resolveMethodDescriptors(tpe.get, params)
+            )
+
+            println(callSiteDesc)
+            cb.invokedynamic(callSiteDesc)
+
         case Term.Block(stats) =>
             cb.block: bk =>
                 scope = scope.push
@@ -316,6 +359,10 @@ def codeBuilder(cb: CodeBuilder, rhs: Term)(using cf: ClassBuilder): Unit =
                                 case Name(value) =>
                                     codeBuilder(bk, rhs)
                                     emitStore(bk, localType, localSlot)
+
+                                case lambda @ Lambda(name, params, rhs, returnType) =>
+                                    codeBuilder(bk, lambda, decltpe)
+                                    emitStore(bk, decltpe.get, localSlot)
                                 case _ => throw NotImplementedError("LMFAO WFKSFKFJDSFDKJ")
 
                         case _: Term =>
