@@ -13,7 +13,7 @@ add: (int, int) -> int = (num1, num2) -> num1 + num2
 add = (num1, num2) -> num1 + num2
 (+) = (num1, num2) -> num1 + num2
 
-add(a, b) = a + b
+add a b = a + b
 
 # lists (functions with 1 arity, or being single chaining can be written as whitespace instead)
 list = [1, 2, 3, 4, 5]
@@ -58,4 +58,4 @@ trait Show[a]
     show: a -> string
 
 impl Show[int]
-    show = value -> value.to_string
+    fun show value = value.to_string

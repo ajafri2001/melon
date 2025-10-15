@@ -21,8 +21,6 @@ import Conversions.given
 import scala.collection.mutable.ArrayBuffer
 import ast.Term.Lambda
 
-var scope = Scope()
-
 val staticInitializer = ArrayBuffer[StaticFieldInitializer]().empty
 
 def emitStatement(cf: ClassBuilder, stat: Stat) =
@@ -47,19 +45,19 @@ def emitStatement(cf: ClassBuilder, stat: Stat) =
                   resolveMethodDescriptors(decltpe.get, params),
                   mods,
                   handler =>
-                      scope = scope.push
+                      Scope.push
                       params.foreach: p =>
-                          scope.addLocal(p.name, p.decltpe.get)
+                          Scope.currentScope.addLocal(p.name, p.decltpe.get)
                       codeBuilder(handler, rhs, decltpe)(using cf)
                       emitReturn(handler, decltpe.get)
-                      scope = scope.pop
+                      Scope.pop
                 )
             cf
 
 def populateClinitFields(cb: CodeBuilder, fieldType: ClassDesc, rhs: Term)(using cf: ClassBuilder): Unit =
     rhs match
         case Name(value) =>
-            scope.lookup(value).get match
+            Scope.currentScope.lookup(value).get match
                 case LocalSymbol(tpe, slot) => emitLoad(cb, tpe, slot)
                 case FieldSymbol(qualifiedName, tpe, mods) =>
                     if mods.contains(ClassFile.ACC_STATIC) then
@@ -70,7 +68,9 @@ def populateClinitFields(cb: CodeBuilder, fieldType: ClassDesc, rhs: Term)(using
                         )
                     else throw new Exception("Cannot access instance field in static initializer")
                 case _ => ???
+
         case Term.Select(qualifier, name) => ???
+
         case Literal(value) =>
             value match
                 case Lit.IntLit(value)    => cb.ldc(value)
@@ -100,7 +100,7 @@ def populateClinitFields(cb: CodeBuilder, fieldType: ClassDesc, rhs: Term)(using
             stats.foreach:
                 case Defn(name, decltpe, rhs, mods, params) =>
                     val localType = decltpe.get
-                    scope.addLocal(name, localType)
+                    Scope.currentScope.addLocal(name, localType)
                     val slot = cb.allocateLocal(localType)
                     populateClinitFields(cb, localType, rhs)
                     emitStore(cb, decltpe.get, slot)
@@ -126,7 +126,9 @@ def emitClinit(using cf: ClassBuilder) =
                 case StaticFieldInitializer(fieldName, fieldType, rhs) =>
                     val lambdas = collectLambdas(rhs)
                     lambdas.foreach: lambda =>
-                        lambda.params.foreach(param => scope.addLocal(param.name, param.decltpe.get))
+                        lambda.params.foreach(param =>
+                            Scope.currentScope.addLocal(param.name, param.decltpe.get)
+                        )
                         cf.withMethodBody(
                           lambda.name.get,
                           resolveMethodDescriptors(lambda.returnType.get, lambda.params),
@@ -166,7 +168,7 @@ def emitCode(source: Source) =
     source.statements.foreach(n =>
         n match
             case Defn(name, decltpe, rhs, mods, params) =>
-                scope.addGlobal(
+                Scope.currentScope.addGlobal(
                   name,
                   if params.isEmpty then FieldSymbol(s"${source.name}/$name", decltpe.get, mods)
                   else MethodSymbol(s"${source.name}/$name", decltpe.get, mods, params)
@@ -199,7 +201,6 @@ def emitLoad(cb: CodeBuilder, tpe: Type, slot: Int): Unit =
         case Type.TypeUnit        => cb.aload(slot)
         case Type.TypeChar        => cb.iload(slot)
         case Type.TypeName(value) => cb.aload(slot)
-        case Type.TypeFunc(_, _)  => cb.aload(slot)
 
 def emitStore(cb: CodeBuilder, tpe: Type, slot: Int): Unit =
     tpe match
@@ -214,29 +215,27 @@ def emitStore(cb: CodeBuilder, tpe: Type, slot: Int): Unit =
         case Type.TypeUnit        => ???
         case Type.TypeChar        => cb.istore(slot)
         case Type.TypeName(value) => cb.astore(slot)
-        case _: Type.TypeFunc     => cb.astore(slot)
 
 def emitReturn(cb: CodeBuilder, returnType: Type) =
     returnType match
-        case Type.TypeInt             => cb.ireturn
-        case Type.TypeDouble          => cb.dreturn
-        case Type.TypeFloat           => cb.freturn
-        case Type.TypeLong            => cb.lreturn
-        case Type.TypeShort           => cb.ireturn
-        case Type.TypeBool            => cb.ireturn
-        case Type.TypeByte            => cb.ireturn
-        case Type.TypeString          => cb.areturn
-        case Type.TypeUnit            => cb.return_
-        case Type.TypeChar            => cb.ireturn
-        case Type.TypeName(value)     => cb.areturn
-        case Type.TypeFunc(_, result) => cb.areturn
+        case Type.TypeInt         => cb.ireturn
+        case Type.TypeDouble      => cb.dreturn
+        case Type.TypeFloat       => cb.freturn
+        case Type.TypeLong        => cb.lreturn
+        case Type.TypeShort       => cb.ireturn
+        case Type.TypeBool        => cb.ireturn
+        case Type.TypeByte        => cb.ireturn
+        case Type.TypeString      => cb.areturn
+        case Type.TypeUnit        => cb.return_
+        case Type.TypeChar        => cb.ireturn
+        case Type.TypeName(value) => cb.areturn
 
 def codeBuilder(cb: CodeBuilder, rhs: Term, lambdaRecurseType: Option[Type] = None)(using
     cf: ClassBuilder
 ): Unit =
     rhs match
         case Term.Name(value) =>
-            scope.lookup(value).get match
+            Scope.currentScope.lookup(value).get match
                 case FieldSymbol(qualifiedName, tpe, mods) =>
                     val isStatic = mods.contains(AccessFlag.STATIC)
                     if isStatic then
@@ -259,7 +258,7 @@ def codeBuilder(cb: CodeBuilder, rhs: Term, lambdaRecurseType: Option[Type] = No
                 case _ => ???
 
         case Term.Apply(fun, args) =>
-            scope
+            Scope.currentScope
                 .lookup(fun.value)
                 .getOrElse(throw NoSuchMethodException(s"Can't find ${fun.value} in scope")) match
                 case MethodSymbol(qualifiedName, tpe, mods, params) =>
@@ -292,19 +291,19 @@ def codeBuilder(cb: CodeBuilder, rhs: Term, lambdaRecurseType: Option[Type] = No
                 case Lit.LongLit(value)   => cb.ldc(value)
 
         case Term.Lambda(name, params, rhs, tpe) =>
-            params.foreach(param => scope.addLocal(param.name, param.decltpe.get))
+            params.foreach(param => Scope.currentScope.addLocal(param.name, param.decltpe.get))
 
             cf.withMethodBody(
               name.get,
               resolveMethodDescriptors(tpe.get, params),
               Constants.LambdaFlag,
               handler =>
-                  scope = scope.push
+                  Scope.push
                   params.foreach: p =>
-                      scope.addLocal(p.name, p.decltpe.get)
+                      Scope.currentScope.addLocal(p.name, p.decltpe.get)
                       codeBuilder(handler, rhs, tpe)(using cf)
                       emitReturn(handler, tpe.get)
-                  scope = scope.pop
+                  Scope.pop
             )
 
             val fieldType = lambdaRecurseType.get
@@ -334,13 +333,13 @@ def codeBuilder(cb: CodeBuilder, rhs: Term, lambdaRecurseType: Option[Type] = No
 
         case Term.Block(stats) =>
             cb.block: bk =>
-                scope = scope.push
+                Scope.push
                 stats.foreach: n =>
                     n match
                         case Defn(name, decltpe, rhs, mods, params) =>
                             val localType = decltpe.get
                             val localSlot = bk.allocateLocal(localType)
-                            scope.addLocal(name, localType)
+                            Scope.currentScope.addLocal(name, localType)
                             rhs match
                                 case Literal(value) =>
                                     value match
@@ -367,4 +366,4 @@ def codeBuilder(cb: CodeBuilder, rhs: Term, lambdaRecurseType: Option[Type] = No
 
                         case _: Term =>
                             codeBuilder(bk, n.asInstanceOf[Term]) // quality pattern matching lol
-                scope = scope.pop
+                Scope.pop

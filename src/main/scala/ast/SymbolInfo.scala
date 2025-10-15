@@ -7,7 +7,6 @@ enum SymbolInfo:
     case FieldSymbol(qualifiedName: String, tpe: Type, mods: List[Mod])
     case MethodSymbol(qualifiedName: String, tpe: Type, mods: List[Mod], params: List[Param])
 
-// Ideally should refactor to a singleton via a companion object
 final class Scope(val parent: Option[Scope] = None):
 
     private val symbols: Map[String, SymbolInfo] = Map.empty
@@ -33,3 +32,12 @@ final class Scope(val parent: Option[Scope] = None):
     def dump: Unit =
         parent.foreach(_.dump)
         symbols.foreach((k, v) => println(s"$k -> $v"))
+
+object Scope:
+    var currentScope: Scope = new Scope(None)
+
+    def push: Unit =
+        currentScope = currentScope.push
+
+    def pop: Unit =
+        currentScope = currentScope.pop

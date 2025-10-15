@@ -9,8 +9,24 @@ case class Source(statements: List[Stat], name: String = "Main") extends Tree
 
 sealed trait Stat extends Tree
 
+// enum Defn extends Stat:
+//     case Method(
+//         name: String,
+//         decltpe: Option[Type] = None,
+//         rhs: Term,
+//         mods: List[Mod] = List(AccessFlag.STATIC, AccessFlag.PUBLIC),
+//         params: List[Param] = Nil
+//     )
+//
+//     case Value(
+//         name: String,
+//         decltpe: Option[Type] = None,
+//         rhs: Term,
+//         mods: List[Mod] = List(AccessFlag.STATIC, AccessFlag.PUBLIC)
+//     )
+
 case class Defn(
-    name: String = "",
+    name: String,
     decltpe: Option[Type] = None,
     rhs: Term,
     mods: List[Mod] = List(AccessFlag.STATIC, AccessFlag.PUBLIC),
@@ -33,7 +49,6 @@ enum Type:
     case TypeUnit
     case TypeChar
     case TypeName(value: String)
-    case TypeFunc(params: List[Type], result: Type)
 
 enum Term:
     case Name(value: String)

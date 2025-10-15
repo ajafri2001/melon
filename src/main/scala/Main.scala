@@ -22,7 +22,7 @@ import java.lang.reflect.AccessFlag
             Param("x", Some(Type.TypeInt)),
             Param("y", Some(Type.TypeInt))
           ),
-          decltpe = Some(Type.TypeUnit),
+          decltpe = Some(Type.TypeInt),
           rhs = Term.Apply(
             Term.Name("identity"),
             List(Term.Name("x"), Term.Name("y"))
