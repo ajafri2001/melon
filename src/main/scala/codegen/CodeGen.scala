@@ -13,7 +13,7 @@ import java.lang.constant.*
 import java.lang.constant.MethodTypeDesc
 import java.lang.constant.ConstantDescs.*
 import ast.Term.Literal
-import ast.SymbolInfo.*
+import ast.Symbols.*
 import java.lang.classfile.attribute.ConstantValueAttribute
 import ast.Term.Name
 import Conversions.given
@@ -25,34 +25,38 @@ val staticInitializer = ArrayBuffer[StaticFieldInitializer]().empty
 
 def emitStatement(cf: ClassBuilder, stat: Stat) =
     stat match
-        case Defn(name, decltpe, rhs, mods, params) =>
-            assert(!name.isEmpty, println("TOP LEVEL DEFINITIONS SHOULDN't HAVE EMPTY NAMES"))
-            if params.isEmpty then
-                rhs match
-                    case Literal(literal) =>
-                        cf.withField(
-                          name,
-                          decltpe.get,
-                          fb => emitConstantField(fb.withFlags(mods), literal)
-                        )
+        case Defn.Value(name, decltpe, rhs, mods) =>
+            rhs match
+                case Literal(literal) =>
+                    literal match
+                        case Lit.ArrayLit(value) =>
+                            cf.withField(name, decltpe.get, mods)
+                            staticInitializer += StaticFieldInitializer(name, decltpe.get, rhs)
 
-                    case _ =>
-                        cf.withField(name, decltpe.get, mods)
-                        staticInitializer += StaticFieldInitializer(name, decltpe.get, rhs)
-            else
-                cf.withMethodBody(
-                  name,
-                  resolveMethodDescriptors(decltpe.get, params),
-                  mods,
-                  handler =>
-                      Scope.push
-                      params.foreach: p =>
-                          Scope.currentScope.addLocal(p.name, p.decltpe.get)
-                      codeBuilder(handler, rhs, decltpe)(using cf)
-                      emitReturn(handler, decltpe.get)
-                      Scope.pop
-                )
-            cf
+                        case _ =>
+                            cf.withField(
+                              name,
+                              decltpe.get,
+                              fb => emitConstantField(fb.withFlags(mods), literal)
+                            )
+
+                case _ =>
+                    cf.withField(name, decltpe.get, mods)
+                    staticInitializer += StaticFieldInitializer(name, decltpe.get, rhs)
+        case Defn.Method(name, decltpe, rhs, mods, params) =>
+            cf.withMethodBody(
+              name,
+              resolveMethodDescriptors(decltpe.get, params),
+              mods,
+              handler =>
+                  Scope.push
+                  params.foreach: p =>
+                      Scope.currentScope.addLocal(p.name, p.decltpe.get)
+                  codeBuilder(handler, rhs, decltpe)(using cf)
+                  emitReturn(handler, decltpe.get)
+                  Scope.pop
+            )
+    cf
 
 def populateClinitFields(cb: CodeBuilder, fieldType: ClassDesc, rhs: Term)(using cf: ClassBuilder): Unit =
     rhs match
@@ -76,6 +80,19 @@ def populateClinitFields(cb: CodeBuilder, fieldType: ClassDesc, rhs: Term)(using
                 case Lit.IntLit(value)    => cb.ldc(value)
                 case Lit.StringLit(value) => cb.ldc(value)
                 case Lit.LongLit(value)   => cb.ldc(value)
+                case Lit.ArrayLit(elements) =>
+                    cb.ldc(elements.length)
+                    cb.newarray(TypeKind.INT)
+
+                    for (elem, i) <- elements.zipWithIndex do
+                        cb.dup
+                        cb.ldc(i)
+
+                        elem match
+                            case Lit.IntLit(v) => cb.ldc(v)
+                            case _             => ???
+                        cb.iastore
+
         case Term.Apply(qualifiedName, args) =>
             ???
         case Term.Lambda(name, params, rhs, returnType) =>
@@ -98,12 +115,20 @@ def populateClinitFields(cb: CodeBuilder, fieldType: ClassDesc, rhs: Term)(using
             cb.invokedynamic(callSiteDesc)
         case Term.Block(stats) =>
             stats.foreach:
-                case Defn(name, decltpe, rhs, mods, params) =>
+                case Defn.Method(name, decltpe, rhs, mods, params) =>
                     val localType = decltpe.get
                     Scope.currentScope.addLocal(name, localType)
                     val slot = cb.allocateLocal(localType)
                     populateClinitFields(cb, localType, rhs)
                     emitStore(cb, decltpe.get, slot)
+
+                case Defn.Value(name, decltpe, rhs, mods) =>
+                    val localType = decltpe.get
+                    Scope.currentScope.addLocal(name, localType)
+                    val slot = cb.allocateLocal(localType)
+                    populateClinitFields(cb, localType, rhs)
+                    emitStore(cb, decltpe.get, slot)
+
                 case t: Term => populateClinitFields(cb, fieldType, t)
 
 def collectLambdas(term: Term): List[Term.Lambda] =
@@ -112,8 +137,9 @@ def collectLambdas(term: Term): List[Term.Lambda] =
             lambda :: collectLambdas(rhs)
         case Term.Block(stats) =>
             stats.flatMap {
-                case Defn(_, _, rhs, _, _) => collectLambdas(rhs)
-                case t: Term               => collectLambdas(t)
+                case Defn.Method(_, _, rhs, _, _) => collectLambdas(rhs)
+                case Defn.Value(_, _, rhs, _)     => collectLambdas(rhs)
+                case t: Term                      => collectLambdas(t)
             }
         case Term.Apply(_, args) =>
             args.flatMap(collectLambdas)
@@ -167,11 +193,15 @@ def emitConstantField(fieldBuilder: FieldBuilder, literal: Lit) =
 def emitCode(source: Source) =
     source.statements.foreach(n =>
         n match
-            case Defn(name, decltpe, rhs, mods, params) =>
+            case Defn.Method(name, decltpe, rhs, mods, params) =>
                 Scope.currentScope.addGlobal(
                   name,
-                  if params.isEmpty then FieldSymbol(s"${source.name}/$name", decltpe.get, mods)
-                  else MethodSymbol(s"${source.name}/$name", decltpe.get, mods, params)
+                  MethodSymbol(s"${source.name}/$name", decltpe.get, mods, params)
+                )
+            case Defn.Value(name, decltpe, rhs, mods) =>
+                Scope.currentScope.addGlobal(
+                  name,
+                  FieldSymbol(s"${source.name}/$name", decltpe.get, mods)
                 )
     )
 
@@ -334,36 +364,61 @@ def codeBuilder(cb: CodeBuilder, rhs: Term, lambdaRecurseType: Option[Type] = No
         case Term.Block(stats) =>
             cb.block: bk =>
                 Scope.push
-                stats.foreach: n =>
-                    n match
-                        case Defn(name, decltpe, rhs, mods, params) =>
-                            val localType = decltpe.get
-                            val localSlot = bk.allocateLocal(localType)
-                            Scope.currentScope.addLocal(name, localType)
-                            rhs match
-                                case Literal(value) =>
-                                    value match
-                                        case Lit.IntLit(value) =>
-                                            bk.ldc(value)
-                                            bk.istore(localSlot)
 
-                                        case Lit.LongLit(value) =>
-                                            bk.ldc(value)
-                                            bk.lstore(localSlot)
+                def handleDefn(name: String, decltpe: Option[Type], rhs: Term): Unit =
+                    val localType = decltpe.get
+                    val localSlot = bk.allocateLocal(localType)
+                    Scope.currentScope.addLocal(name, localType)
 
-                                        case Lit.StringLit(value) =>
-                                            bk.ldc(value)
-                                            bk.astore(localSlot)
+                    rhs match
+                        case Literal(value) =>
+                            value match
+                                case Lit.IntLit(v) =>
+                                    bk.ldc(v)
+                                    bk.istore(localSlot)
+                                case Lit.LongLit(v) =>
+                                    bk.ldc(v)
+                                    bk.lstore(localSlot)
+                                case Lit.StringLit(v) =>
+                                    bk.ldc(v)
+                                    bk.astore(localSlot)
 
-                                case Name(value) =>
-                                    codeBuilder(bk, rhs)
-                                    emitStore(bk, localType, localSlot)
+                                case Lit.ArrayLit(elements) =>
+                                    bk.ldc(elements.length)
+                                    typeToTypeKind(localType) match
+                                        case TypeKind.REFERENCE => bk.anewarray(CD_String)
+                                        case _                  => bk.newarray(localType)
+                                    bk.storeLocal(TypeKind.REFERENCE, localSlot)
+                                    elements.zipWithIndex.foreach:
+                                        case (elem, idx) =>
+                                            bk.loadLocal(TypeKind.INT, idx)
+                                            bk.ldc(idx)
+                                            elem match
+                                                case Lit.IntLit(v)    => bk.ldc(v)
+                                                case Lit.LongLit(v)   => bk.ldc(v)
+                                                case Lit.StringLit(v) => bk.ldc(v)
+                                                case _ => throw NotImplementedError("Unsupported literal")
+                                            elem match
+                                                case Lit.IntLit(_)    => bk.iastore()
+                                                case Lit.LongLit(_)   => bk.lastore()
+                                                case Lit.StringLit(_) => bk.aastore()
+                                                case _                => ???
 
-                                case lambda @ Lambda(name, params, rhs, returnType) =>
-                                    codeBuilder(bk, lambda, decltpe)
-                                    emitStore(bk, decltpe.get, localSlot)
-                                case _ => throw NotImplementedError("LMFAO WFKSFKFJDSFDKJ")
+                        case Name(_) =>
+                            codeBuilder(bk, rhs)
+                            emitStore(bk, localType, localSlot)
+                        case lambda @ Lambda(_, _, _, _) =>
+                            codeBuilder(bk, lambda, decltpe)
+                            emitStore(bk, localType, localSlot)
+                        case _ =>
+                            throw NotImplementedError("Unhandled RHS in handleDefn")
 
-                        case _: Term =>
-                            codeBuilder(bk, n.asInstanceOf[Term]) // quality pattern matching lol
+                stats.foreach:
+                    case Defn.Method(name, decltpe, rhs, _, _) =>
+                        handleDefn(name, decltpe, rhs)
+                    case Defn.Value(name, decltpe, rhs, _) =>
+                        handleDefn(name, decltpe, rhs)
+                    case t: Term =>
+                        codeBuilder(bk, t)
+
                 Scope.pop

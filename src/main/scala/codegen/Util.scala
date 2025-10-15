@@ -20,7 +20,7 @@ object Conversions:
         if mods.isEmpty then AccessFlag.PUBLIC.mask | AccessFlag.STATIC.mask
         else mods.map(_.mask).reduce(_ | _)
 
-    given Conversion[Type, TypeKind] = value =>
+    given typeToTypeKind: Conversion[Type, TypeKind] = value =>
         value match
             case Type.TypeInt    => TypeKind.INT
             case Type.TypeDouble => TypeKind.DOUBLE
@@ -35,17 +35,18 @@ object Conversions:
 
     given Conversion[Type, ClassDesc] = value =>
         value match
-            case Type.TypeInt    => CD_int
-            case Type.TypeDouble => CD_double
-            case Type.TypeFloat  => CD_float
-            case Type.TypeLong   => CD_long
-            case Type.TypeShort  => CD_short
-            case Type.TypeBool   => CD_boolean
-            case Type.TypeByte   => CD_byte
-            case Type.TypeString => CD_String
-            case Type.TypeUnit   => CD_void
-            case Type.TypeChar   => CD_char
-            case _               => ClassDesc.of("java.util.function.IntUnaryOperator")
+            case Type.TypeInt         => CD_int
+            case Type.TypeDouble      => CD_double
+            case Type.TypeFloat       => CD_float
+            case Type.TypeLong        => CD_long
+            case Type.TypeShort       => CD_short
+            case Type.TypeBool        => CD_boolean
+            case Type.TypeByte        => CD_byte
+            case Type.TypeString      => CD_String
+            case Type.TypeUnit        => CD_void
+            case Type.TypeChar        => CD_char
+            case Type.TypeName(value) => ClassDesc.of(value)
+            case Type.TypeArray(_)    => CD_int.arrayType
 
 object LambdaSyntheticMethodName:
     private var count = 0

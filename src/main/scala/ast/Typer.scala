@@ -26,5 +26,7 @@ def nameLambdas(stat: Stat): Stat =
             case other => other
 
     stat match
-        case defn @ Defn(_, _, rhs, _, _) =>
-            defn.copy(rhs = nameLambdasInTerm(rhs))
+        case method @ Defn.Method(_, _, rhs, _, _) =>
+            method.copy(rhs = nameLambdasInTerm(rhs))
+        case value @ Defn.Value(_, _, rhs, _) =>
+            value.copy(rhs = nameLambdasInTerm(rhs))

@@ -2,21 +2,21 @@ package ast
 
 import scala.collection.mutable.Map
 
-enum SymbolInfo:
+enum Symbols:
     case LocalSymbol(tpe: Type, slot: Int)
     case FieldSymbol(qualifiedName: String, tpe: Type, mods: List[Mod])
     case MethodSymbol(qualifiedName: String, tpe: Type, mods: List[Mod], params: List[Param])
 
 final class Scope(val parent: Option[Scope] = None):
 
-    private val symbols: Map[String, SymbolInfo] = Map.empty
+    private val symbols: Map[String, Symbols] = Map.empty
     private var nextSlot: Int = 0
 
-    def addGlobal(name: String, sym: SymbolInfo): Unit =
+    def addGlobal(name: String, sym: Symbols): Unit =
         symbols(name) = sym
 
     def addLocal(name: String, tpe: Type): Unit =
-        val sym = SymbolInfo.LocalSymbol(tpe, nextSlot)
+        val sym = Symbols.LocalSymbol(tpe, nextSlot)
         nextSlot += 1
         symbols(name) = sym
 
@@ -24,7 +24,7 @@ final class Scope(val parent: Option[Scope] = None):
 
     def pop: Scope = parent.get
 
-    def lookup(name: String): Option[SymbolInfo] =
+    def lookup(name: String): Option[Symbols] =
         symbols
             .get(name)
             .orElse(parent.flatMap(_.lookup(name)))

@@ -9,29 +9,21 @@ case class Source(statements: List[Stat], name: String = "Main") extends Tree
 
 sealed trait Stat extends Tree
 
-// enum Defn extends Stat:
-//     case Method(
-//         name: String,
-//         decltpe: Option[Type] = None,
-//         rhs: Term,
-//         mods: List[Mod] = List(AccessFlag.STATIC, AccessFlag.PUBLIC),
-//         params: List[Param] = Nil
-//     )
-//
-//     case Value(
-//         name: String,
-//         decltpe: Option[Type] = None,
-//         rhs: Term,
-//         mods: List[Mod] = List(AccessFlag.STATIC, AccessFlag.PUBLIC)
-//     )
+enum Defn extends Stat:
+    case Method(
+        name: String,
+        decltpe: Option[Type] = None,
+        rhs: Term,
+        mods: List[Mod] = List(AccessFlag.STATIC, AccessFlag.PUBLIC),
+        params: List[Param] = Nil
+    )
 
-case class Defn(
-    name: String,
-    decltpe: Option[Type] = None,
-    rhs: Term,
-    mods: List[Mod] = List(AccessFlag.STATIC, AccessFlag.PUBLIC),
-    params: List[Param] = Nil
-) extends Stat
+    case Value(
+        name: String,
+        decltpe: Option[Type] = None,
+        rhs: Term,
+        mods: List[Mod] = List(AccessFlag.STATIC, AccessFlag.PUBLIC)
+    )
 
 case class Param(name: String, decltpe: Option[Type] = None)
 
@@ -49,6 +41,7 @@ enum Type:
     case TypeUnit
     case TypeChar
     case TypeName(value: String)
+    case TypeArray(value: Type)
 
 enum Term:
     case Name(value: String)
@@ -62,3 +55,4 @@ enum Lit:
     case IntLit(value: Int)
     case StringLit(value: String)
     case LongLit(value: Long)
+    case ArrayLit(value: List[Lit]) // Ideally should be List[Term] Maybe soon? :D
