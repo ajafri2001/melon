@@ -10,3 +10,4 @@ scalacOptions ++= Seq(
 )
 
 libraryDependencies += "org.scalameta" %% "munit" % "1.2.0" % Test
+libraryDependencies += "io.github.classgraph" % "classgraph" % "4.8.184"

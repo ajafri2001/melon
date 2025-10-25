@@ -3,6 +3,7 @@ package codegen
 import ast.*
 
 import scala.language.implicitConversions
+import io.github.classgraph.ClassGraph
 
 import java.lang.reflect.AccessFlag
 import java.lang.reflect.Modifier
@@ -33,7 +34,7 @@ object Conversions:
             case Type.TypeString => TypeKind.REFERENCE
             case _               => TypeKind.REFERENCE
 
-    given Conversion[Type, ClassDesc] = value =>
+    given typeToClassDesc: Conversion[Type, ClassDesc] = value =>
         value match
             case Type.TypeInt         => CD_int
             case Type.TypeDouble      => CD_double
@@ -46,7 +47,24 @@ object Conversions:
             case Type.TypeUnit        => CD_void
             case Type.TypeChar        => CD_char
             case Type.TypeName(value) => ClassDesc.of(value)
-            case Type.TypeArray(_)    => CD_int.arrayType
+            case Type.TypeArray(elem) => typeToClassDesc(elem).arrayType
+
+    given litToTypeKind: Conversion[Lit, TypeKind] = value =>
+        value match
+            case Lit.IntLit(value)    => TypeKind.INT
+            case Lit.StringLit(value) => TypeKind.REFERENCE
+            case Lit.LongLit(value)   => TypeKind.LONG
+            case Lit.ArrayLit(value)  => litToTypeKind(value.head)
+
+    given Conversion[String, List[Mod]] = value =>
+        value
+            .split(" ")
+            .toList
+            .map:
+                case "public" => AccessFlag.PUBLIC
+                case "final"  => AccessFlag.FINAL
+                case "static" => AccessFlag.STATIC
+                case _        => ???
 
 object LambdaSyntheticMethodName:
     private var count = 0
@@ -72,8 +90,8 @@ object Constants:
       )
     )
 
-object Reflection:
-    def getSAMName(interfaceName: String) =
+object ClassUtil:
+    def getSAMName(interfaceName: String): String =
         Class
             .forName(interfaceName)
             .getMethods
@@ -84,3 +102,13 @@ object Reflection:
             )
             .map(_.getName)
             .getOrElse(throw new IllegalArgumentException(s"$interfaceName has no SAM"))
+
+    def resolveClass(name: String): Boolean =
+        scala.util.Try(Class.forName(name)).isSuccess
+
+    def resolveSelect(term: Term): Unit =
+        val symbol = term match
+            case Term.Name(value)                => ???
+            case Term.Select(qualifier, member)  =>
+            case Term.Apply(qualifiedName, args) =>
+            case _                               => ???

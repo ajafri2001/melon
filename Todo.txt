@@ -1,0 +1,2 @@
+# Overloads needs to be accounted for in the symbol table
+# Classpath symbols need to be looked up (Term.Name.lookup shouldn't throw when the symbol is present in the classpath)

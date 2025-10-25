@@ -45,9 +45,9 @@ enum Type:
 
 enum Term:
     case Name(value: String)
-    case Select(qualifier: Name, name: String)
+    case Select(qualifier: Term, member: Term)
     case Literal(value: Lit)
-    case Apply(qualifiedName: Name, args: List[Term])
+    case Apply(qualifiedName: Term, args: List[Term])
     case Block(stats: List[Term | Stat])
     case Lambda(name: Option[String] = None, params: List[Param], rhs: Term, returnType: Option[Type] = None)
 

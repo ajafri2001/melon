@@ -15,6 +15,11 @@ add = (num1, num2) -> num1 + num2
 
 add a b = a + b
 
+add: (int, int) -> int
+fun (+) (a: int, b: int): int = a + b
+
+fun add [A](a, b) = a + b
+
 # lists (functions with 1 arity, or being single chaining can be written as whitespace instead)
 list = [1, 2, 3, 4, 5]
 
